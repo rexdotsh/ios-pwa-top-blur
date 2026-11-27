@@ -7,6 +7,6 @@
   "scripts": {
     "build": "bun scripts/build.js",
     "serve": "bun scripts/build.js && bun scripts/serve.js",
-    "deploy": "bun scripts/build.js && bunx wrangler deploy --config demo/wrangler.jsonc"
+    "deploy": "bun scripts/build.js && bunx wrangler@4.149.0 deploy --config demo/wrangler.jsonc"
   }
 }

@@ -17,9 +17,9 @@ table { width: 100%; border-collapse: collapse; font: 12px/1.4 ui-monospace, Men
 th, td { text-align: left; vertical-align: top; padding: 4px 0; border-top: 1px solid var(--line); word-break: break-word; }
 th { width: 36%; font-weight: 400; color: var(--mute); padding-right: 8px; }
 #check { margin: 8px 0 0; padding: 10px; border-radius: 10px; border: 2px solid var(--line); font: 12px/1.45 ui-monospace, Menlo, monospace; white-space: pre-wrap; }
-#check[data-verdict="pass"] { border-color: #16a34a; }
-#check[data-verdict="warn"] { border-color: #b45309; }
-#check[data-verdict="fail"] { border-color: #dc2626; }
+#check[data-verdict="candidate"] { border-color: #16a34a; }
+#check[data-verdict="inconclusive"] { border-color: #b45309; }
+#check[data-verdict="none"] { border-color: #dc2626; }
 
 .stripe { height: 72px; display: flex; align-items: center; padding: 0 18px; font: 800 22px/1 system-ui, sans-serif; white-space: nowrap; overflow: hidden; }
 .s0 { background: #e11d48; color: #fff; }

@@ -18,13 +18,16 @@ function insets() {
 function rows() {
   const modes = ["standalone", "fullscreen", "minimal-ui", "browser"].filter((m) => mq(`(display-mode: ${m})`));
   const sbs = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.content ?? "not set";
+  const vv = visualViewport;
   return [
     ["navigator.standalone", String(navigator.standalone)],
     ["display-mode", modes.join(", ") || "none"],
     ["safe-area t r b l", insets()],
-    ["viewport", `${innerWidth}×${innerHeight} (screen ${screen.width}×${screen.height} @${devicePixelRatio}x)`],
+    ["layout viewport", `${innerWidth}×${innerHeight}`],
+    ["visual viewport", vv ? `${Math.round(vv.width)}×${Math.round(vv.height)}, scale ${vv.scale.toFixed(2)}, offset ${Math.round(vv.offsetTop)}` : "n/a"],
+    ["screen", `${screen.width}×${screen.height} @${devicePixelRatio}x`],
     ["colour scheme", mq("(prefers-color-scheme: dark)") ? "dark" : "light"],
-    ["status-bar-style", sbs],
+    ["status-bar meta (current HTML)", `${sbs}; the installed value can't be read`],
     ["user agent", navigator.userAgent],
   ];
 }
@@ -41,6 +44,8 @@ function render() {
 
 render();
 addEventListener("resize", render);
+visualViewport?.addEventListener("resize", render);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
 let t = 0;
 addEventListener(
   "scroll",
