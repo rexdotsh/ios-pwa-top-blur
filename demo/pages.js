@@ -20,8 +20,8 @@ const bar = (extra = "") => `
   ${extra}
 }`;
 
-// basis: "device" = the same setup was checked on an iPhone (iOS 27); "reports" = other developers' device reports;
-// "source" = predicted from WebKit's source only.
+// basis: "device" = the same pattern was checked on an iPhone (iOS 27); "simulator" = checked in the iOS 27.2
+// Simulator (docs/simulator-results.md).
 export const PAGES = [
   {
     n: 1,
@@ -30,7 +30,7 @@ export const PAGES = [
     ok: true,
     basis: "device",
     summary: "Full-width, opaque, fixed bar at top: 0. No status-bar tag.",
-    expect: "No blur; the status bar is solid green. The same pattern was checked on an iPhone with iOS 27.",
+    expect: "No blur; the status bar is solid green, in light and dark and while pulled down. Checked on an iPhone (iOS 27) and in the iOS 27.2 Simulator.",
     css: bar(),
     html: `<header class="top-bar">fixed</header>`,
   },
@@ -38,9 +38,9 @@ export const PAGES = [
     n: 2,
     id: "narrow",
     title: "narrow bar",
-    basis: "source",
+    basis: "simulator",
     summary: "The same bar, 80% wide. WebKit wants at least 0.9 × (viewport width − 8px).",
-    expect: "Predicted from WebKit's source: the bar is too narrow to count, so the blur stays.",
+    expect: "The bar is too narrow to count, so the blur stays, even at scroll 0 (iOS 27.2 Simulator).",
     css: bar("left: 10%; right: 10%;"),
     html: `<header class="top-bar">80% wide</header>`,
   },
@@ -48,9 +48,9 @@ export const PAGES = [
     n: 3,
     id: "thin",
     title: "thin strip",
-    basis: "source",
+    basis: "simulator",
     summary: "A 4px accent line at the top. WebKit tests the point 4px down, which a 4px strip doesn't reach.",
-    expect: "Predicted from WebKit's source: the blur stays.",
+    expect: "The blur stays, even at scroll 0 (iOS 27.2 Simulator).",
     css: bar("min-height: 0; height: 4px; padding: 0;"),
     html: `<div class="top-bar"></div>`,
   },
@@ -58,9 +58,9 @@ export const PAGES = [
     n: 4,
     id: "glass",
     title: "glass bar (tint fallback experiment)",
-    basis: "source",
+    basis: "simulator",
     summary: "Translucent bar with backdrop-filter. WebKit still counts it as the edge, but marks its colour as \"multiple\".",
-    expect: "Predicted from WebKit's source: no blur, but the status bar takes the page background (white or near-black), not the bar's green.",
+    expect: "No blur, but the status bar takes the page background (#ffffff light, #111111 dark), not the bar's green. It doesn't follow a live switch to dark until the app is relaunched (iOS 27.2 Simulator).",
     css: bar("background-color: rgb(14 122 79 / 50%); -webkit-backdrop-filter: blur(20px) saturate(1.8); backdrop-filter: blur(20px) saturate(1.8);"),
     html: `<header class="top-bar">glass</header>`,
   },
@@ -68,9 +68,9 @@ export const PAGES = [
     n: 5,
     id: "black-translucent",
     title: "black-translucent",
-    basis: "reports",
+    basis: "simulator",
     summary: "Exactly page 1, except for apple-mobile-web-app-status-bar-style: black-translucent.",
-    expect: "Based on developer reports, not checked here: the blur stays over the bar, because the app reserves no strip under the status bar for WebKit to fill.",
+    expect: "The blur stays over the bar and softens its label; the clock is dark even in light mode (iOS 27.2 Simulator).",
     statusBarStyle: "black-translucent",
     css: bar(),
     html: `<header class="top-bar">black-translucent</header>`,

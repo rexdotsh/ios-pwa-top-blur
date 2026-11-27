@@ -29,7 +29,7 @@ cpSync(join(root, "checker/test"), join(pub, "checker/test"), { recursive: true 
 cpSync(join(root, "checker/dist"), join(pub, "checker/dist"), { recursive: true });
 cpSync(join(root, "demo/static"), join(pub, "static"), { recursive: true });
 
-const BASIS = { device: "verified", reports: "reported", source: "prediction" };
+const BASIS = { device: "device-verified", simulator: "simulator-verified" };
 const STRIPES = ["THE QUICK BROWN FOX", "JUMPS OVER", "THE LAZY DOG", "SCROLL ME UP", "IS IT BLURRY?"];
 const stripes = Array.from({ length: 36 }, (_, i) => `<div class="stripe s${i % 6}">${String(i + 1).padStart(2, "0")} ▸ ${STRIPES[i % STRIPES.length]}</div>`).join("\n");
 
@@ -54,7 +54,7 @@ ${p.html}
 <section class="card">
 <h1>${p.n} · ${esc(p.title)}</h1>
 <p>${esc(p.summary)}</p>
-<p><b>Expected when installed:</b> ${esc(p.expect)}</p>
+<p><b>When installed:</b> ${esc(p.expect)}</p>
 <p class="mute">Scroll the stripes up under the status bar. <a href="/">All demo pages</a></p>
 <table id="diag"></table>
 <pre id="check">checking…</pre>
@@ -109,14 +109,14 @@ const index = `<!doctype html>
   a { color: #1d4ed8; } code { font: 13px ui-monospace, Menlo, monospace; background: #f3f3f3; padding: 1px 4px; border-radius: 4px; }
   ul.pages { list-style: none; padding: 0; margin: 0; border: 1px solid #e5e5e5; border-radius: 12px; }
   ul.pages li { padding: 10px 14px; border-top: 1px solid #eee; } ul.pages li:first-child { border-top: 0; }
-  .tag { display: inline-block; min-width: 70px; font: 700 12px system-ui; color: #fff; border-radius: 6px; padding: 1px 6px; margin-right: 6px; text-align: center; }
+  .tag { display: inline-block; min-width: 118px; font: 700 12px system-ui; color: #fff; border-radius: 6px; padding: 1px 6px; margin-right: 6px; text-align: center; }
   .ok { background: #16a34a; } .bad { background: #dc2626; }
   .mute { color: #555; font-size: 14px; }
 </style>
 </head>
 <body>
 <h1>iOS web app top blur: demo</h1>
-<p class="mute">Installed web apps on iOS 26/27 blur the status bar when content scrolls under it. Page 1 is a setup checked on an iPhone with iOS 27; the others are common mistakes, with predictions from WebKit's source or other developers' reports. Write-up: <a href="${REPO}">${REPO.replace("https://", "")}</a></p>
+<p class="mute">Installed web apps on iOS 26/27 blur the status bar when content scrolls under it. Page 1 is the fix, checked on an iPhone with iOS 27; the others are common mistakes. All five behaved as described in the iOS 27.2 Simulator, in light and dark. Write-up: <a href="${REPO}">${REPO.replace("https://", "")}</a></p>
 
 <h2>Try it</h2>
 <ol>
