@@ -1,0 +1,12 @@
+{
+  "name": "ios-pwa-top-blur",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "author": "rexdotsh",
+  "scripts": {
+    "build": "bun scripts/build.js",
+    "serve": "bun scripts/build.js && bun scripts/serve.js",
+    "deploy": "bun scripts/build.js && bunx wrangler deploy --config demo/wrangler.jsonc"
+  }
+}
