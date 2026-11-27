@@ -1,6 +1,12 @@
 # iOS web app top blur
 
-Since iOS 26, web apps added to the Home Screen can show a frosted blur over the status bar when content scrolls under it, and `theme-color` doesn't change it. This repo collects what is known about why: what was checked on a device, what other developers report, and what WebKit's source says. It also gives a fix that worked on an iPhone with iOS 27, a checker that estimates WebKit's decision from the DOM, and a demo.
+Since iOS 26, web apps added to the Home Screen can show a frosted blur over the status bar, and `theme-color` doesn't change it. This repo collects what is known about why: what was checked on a device and in the Simulator, what other developers report, and what WebKit's source says. It also gives a fix that worked on an iPhone with iOS 27, a checker that estimates WebKit's decision from the DOM, and a demo.
+
+| Before: bar 80% wide | After: full-width fixed bar |
+| --- | --- |
+| <img src="docs/before.png" width="260" alt="Status bar over a frosted blur of the page, with the top of an 80% wide green bar blurred"> | <img src="docs/after.png" width="260" alt="Status bar on a solid green band, with a sharp full-width green bar"> |
+
+<sub>iOS 27.2 Simulator (iPhone 18 Pro), installed web apps, light mode, same scroll position: demo pages 2 and 1. [Full results](docs/simulator-results.md).</sub>
 
 **Live demo:** https://ios-pwa-top-blur-demo.rexdotsh.workers.dev
 
@@ -30,7 +36,7 @@ At the start of `<body>`:
 main { padding-top: calc(44px + env(safe-area-inset-top)); }  /* content starts below the bar */
 ```
 
-On an iPhone with iOS 27, this pattern turned the status bar into a solid band in the bar's colour, with no blur ([evidence](#evidence)).
+On an iPhone with iOS 27, and in the iOS 27.2 Simulator in light and dark, this pattern turned the status bar into a solid band in the bar's colour, with no blur ([evidence](#evidence)).
 
 If you **changed the status-bar meta tag** (for example, removed `black-translucent`), test with a fresh install: delete the Home Screen icon and add it again. Reports say the tag is captured when the icon is added. CSS-only changes don't need this. Removing the icon may also remove the app's storage, sign-ins and notification permission; that wasn't checked here.
 
@@ -48,7 +54,7 @@ If you **changed the status-bar meta tag** (for example, removed `black-transluc
 
 ## Evidence
 
-Three kinds, kept apart throughout:
+Four kinds, kept apart throughout:
 
 **Checked on a device for this repo** (iPhone, iOS 27, fresh installs; which colour scheme was on wasn't recorded):
 
@@ -56,6 +62,21 @@ Three kinds, kept apart throughout:
 | --- | --- |
 | Fixed, full width, 52px, opaque bar; `apple-mobile-web-app-status-bar-style` `default` (a production app) | No blur |
 | Fixed, full width, safe area + 44px, opaque header; no status-bar tag (a test page; the same pattern as demo page 1) | No blur |
+
+**Checked in the Simulator for this repo** (iPhone 18 Pro, iOS 27.2, the five [demo](#demo) pages installed, light and dark, at rest, scrolled and pulled down; [details and screenshots](docs/simulator-results.md)):
+
+| Page | Result |
+| --- | --- |
+| 1 · fixed bar | No blur; status bar solid green in both schemes, also while pulled down |
+| 2 · bar 80% wide, 3 · 4px strip | Blur stays, already at scroll 0 |
+| 4 · glass bar (`backdrop-filter`) | No blur; status bar is the page background (`#ffffff` light, `#111111` dark), not the bar's green |
+| 5 · page 1 plus `black-translucent` | Blur stays and softens the bar's label; dark clock even in light mode |
+
+Also seen in the Simulator:
+- **Blur reach:** on failing pages the band reaches about 105pt down, past the 62pt status bar, so it softens the top of a header too.
+- **Status-bar text** follows the strip: a white clock over page 1's green, a dark one over light blur.
+- **Safe area and viewport:** without the tag the layout viewport is 402×812 and `env(safe-area-inset-top)` is 0. With `black-translucent` it's 402×874 and the inset is 62.
+- **No live scheme switch on page 4:** after a switch to dark while page 4 was open, its status bar stayed `#ffffff` until the app was relaunched.
 
 **Other developers' device reports:**
 
@@ -74,12 +95,9 @@ Three kinds, kept apart throughout:
 
 iOS 26 brought Liquid Glass, and with it the *scroll edge effect*: a soft, progressive blur where scrolling content meets system UI. WebKit calls it the *scroll pocket*. Native apps control it with `UIScrollEdgeEffect`. Pages get no API: no meta tag, no manifest key, no CSS property.
 
-In an installed web app, the system UI at the top is the status bar. When the page scrolls under it, the status bar sits on a frosted, fading band. Reports from iOS 27 describe the band reaching well below the status bar ([bug 329103][bug-329103]).
+In an installed web app, the system UI at the top is the status bar, and the page sits under a frosted, fading band there. In the iOS 27.2 Simulator the band was present even at scroll 0, and reached about 105pt down, past the 62pt status bar, softening the top of the page's own header (see also [bug 329103][bug-329103]).
 
 On iPhone, WebKit hides that blur when it paints a solid **colour extension** over the strip behind the status bar. The colour comes from a fixed or sticky element at the top of the page, so the fix is to give WebKit an element it accepts.
-
-<!-- Screenshot slot: docs/before.png (demo page 2, installed, scrolled) and docs/after.png (demo page 1),
-     with notes in docs/simulator-results.md. Add an image table here once those files exist. -->
 
 ## WebKit's rules
 
@@ -88,7 +106,7 @@ These describe the soft iPhone scroll pocket in WebKit [`de94a1bcf328`][head]. E
 **When the fill can exist**
 
 1. **The fill needs a covered strip at the top.** WebKit draws the top fill only when the hosting app reports a covered ("obscured") top inset above 0 ([`_updateFixedColorExtensionViews`][update-views]). Sampling the top edge starts when that inset is above 0, or continues if an edge already exists ([`sidesRequiringFixedContainerEdges`][sides]). The feature is on wherever Liquid Glass is on ([`defaultContentInsetBackgroundFillEnabled`][pref]).
-   - What the Home Screen shell reports isn't in the public source. Developer measurements match this reading: with no status-bar tag the status bar is a covered strip ([zenn][zenn]), and with `black-translucent` nothing is covered, so no fill can appear (see [Evidence](#evidence)).
+   - What the Home Screen shell reports isn't in the public source. The measurements match this reading. With no status-bar tag, the page starts below the status bar (402×812 in the Simulator; [zenn][zenn] on a device), which fits a covered strip. With `black-translucent` the page runs under it (402×874, inset 62), nothing is covered and the blur stays (see [Evidence](#evidence)).
    - Apple's comment on [bug 317153][bug-317153] deprecates `black-translucent` ("Please remove this key, and the status bar should automatically appear in the same color as the webpage. Home Screen web apps does not support drawing arbitrary content below the status bar"). It doesn't describe the mechanism.
 2. **On iPhone, a visible fill hides the blur, with exceptions.** [`_shouldHideTopScrollPocket`][hide-pocket] returns yes for explicit hide reasons, and no when the pocket is needed for a visible content inset or the scroll view uses the hard edge style (iPad). Otherwise it follows the top colour extension ([`_updateHiddenScrollPocketEdges`][hidden-edges]).
 
@@ -121,7 +139,7 @@ These describe the soft iPhone scroll pocket in WebKit [`de94a1bcf328`][head]. E
 12. **Edges are retained** ([`Page::updateFixedContainerEdges`][page-update]). WebKit keeps the previous element and colour when a sample finds no edge, or finds one with no usable colour while the previous one had a colour. That lasts as long as the previous element still renders and is `visibility: visible`; a top `<header>` is kept even when hidden.
     - Opacity isn't checked here, so fading an element out doesn't release its edge. `display: none` or removing it does.
     - [zenn][zenn] hands the edge over instead: the departing header drops below `opacity: 0.1`, so it stops qualifying as a candidate (rule 7), and a replacement strip wins the next sample.
-13. **No top sampling while the page is pulled down past the top** ([sides to sample][overscroll]), so the previous edge is kept during the stretch. Separately, WKWebView stopped growing the fill during the stretch when there's no refresh control ([`7aa2c5c21594`][c-stretch]). That commit is titled after web apps, but it changes WKWebView; it doesn't show how the Home Screen shell is configured.
+13. **No top sampling while the page is pulled down past the top** ([sides to sample][overscroll]), so the previous edge is kept during the stretch. In the Simulator, page 1's status bar stayed solid green while held pulled down. Separately, WKWebView stopped growing the fill during the stretch when there's no refresh control ([`7aa2c5c21594`][c-stretch]). That commit is titled after web apps, but it changes WKWebView; it doesn't show how the Home Screen shell is configured.
 
 WebKit's edge code never reads `theme-color`. `apple-mobile-web-app-status-bar-style` doesn't appear in WebKit at all; the closed-source shell handles it.
 
@@ -131,7 +149,7 @@ WebKit's edge code never reads `theme-color`. `apple-mobile-web-app-status-bar-s
 | --- | --- |
 | `theme-color` (with or without `media`), manifest `theme_color` | The edge code never reads it. |
 | Only changing `apple-mobile-web-app-status-bar-style` | At most it affects whether a strip is reserved (rule 1); WebKit still needs a qualifying element. Reported failing on its own: [planestro#574][planestro]. |
-| A strip with `height: env(safe-area-inset-top)` | With no status-bar tag the inset is reported as 0 ([zenn][zenn]), so the strip is 0px tall. |
+| A strip with `height: env(safe-area-inset-top)` | With no status-bar tag the inset is 0 (Simulator; [zenn][zenn]), so the strip is 0px tall. |
 | `html`/`body` background colour | Used as the fill colour only when an edge exists but its colour is "multiple" (rule 11). With no fixed element there's no edge. |
 | Manifest `display: fullscreen` | This code never looks at the display mode; [bug 325807][bug-325807] reports the blur stays. `minimal-ui` wasn't tested there. |
 | Moving content down by the band's height | The blur stays; content just starts below it and still scrolls under it. |
@@ -139,7 +157,7 @@ WebKit's edge code never reads `theme-color`. `apple-mobile-web-app-status-bar-s
 
 **Mixed reports:** `viewport-fit=cover` isn't read by the edge code, yet one comment on [bug 325807][bug-325807] says removing it made the scrim disappear, while other reports keep it. Untested here. Removing it also loses edge-to-edge layout in landscape.
 
-**Tint fallback, not a failure:** a translucent glass bar with `backdrop-filter` should still remove the blur, but the status bar takes the page background (or a retained earlier colour) instead of the bar's colour (rules 11–12). This comes from source only; it wasn't checked on a device.
+**Tint fallback, not a failure:** a translucent glass bar with `backdrop-filter` removes the blur, but the status bar takes the page background instead of the bar's colour (rules 11–12). In the Simulator this was `#ffffff` in light and `#111111` in dark, after a relaunch; a live switch to dark left it `#ffffff`. Not checked on a device.
 
 ## Undo the "move content down" workaround
 
@@ -147,20 +165,20 @@ If your app keeps `black-translucent` and pushes content below the blurred band:
 
 1. **Remove `black-translucent`.** Delete the `apple-mobile-web-app-status-bar-style` tag, or set it to `default`. Keep `viewport-fit=cover`.
 2. **Remove the extra top offset**, e.g. `padding-top: calc(env(safe-area-inset-top) + 40px)`, from the page and the header.
-3. **Make the header fixed (or sticky), full width, opaque, at `top: 0`**, with no `backdrop-filter`. Use `box-sizing: border-box` and keep `padding-top: env(safe-area-inset-top)` on the bar itself. It is reported as 0 in a fresh install without the tag, but it's still correct in a Safari tab and in older installs.
+3. **Make the header fixed (or sticky), full width, opaque, at `top: 0`**, with no `backdrop-filter`. Use `box-sizing: border-box` and keep `padding-top: env(safe-area-inset-top)` on the bar itself. It is 0 in a fresh install without the tag, but it's still correct in a Safari tab and in older installs.
 4. **Offset the content by the bar's height**, as in the TL;DR.
 5. **Move narrow fixed elements away from the top centre**: pills, toasts, "new posts" buttons. Put them below the bar or inside it (rule 5).
 6. **Ship the bar in the HTML**, not only from JavaScript, so it's there on the first paint.
 7. **Check full-height layouts.** Without `black-translucent`, `100vh` and `100lvh` were reported to include the status bar's height in installed apps ([bug 316008][bug-316008]), making a "full-height" shell scroll. `100dvh` or `height: 100%` are alternatives; check on your devices.
 8. **Run [the checker](#the-checker).**
 9. **Test with a fresh install** (delete the icon, add it again). Existing installs may keep the old status-bar style. Removing an icon may also remove that app's storage, sign-ins and notification permission (not checked here), so plan how you tell users.
-10. **Optional:** `html { overscroll-behavior-y: none; }` stops the stretch at the top. It isn't needed for the edge (rule 13). Not checked on a device.
+10. **Optional:** `html { overscroll-behavior-y: none; }` stops the stretch at the top. It isn't needed for the edge: without it, the fixed bar stayed solid while pulled down in the Simulator (rule 13).
 
 ## Recipes
 
-### Plain fixed bar (checked on a device)
+### Plain fixed bar (checked on a device and in the Simulator)
 
-The TL;DR. Any opaque `background-color` works; the status bar should take that colour.
+The TL;DR. Any opaque `background-color` works; the status bar takes that colour.
 
 ### Light and dark
 
@@ -172,7 +190,7 @@ html, body { background-color: var(--bar); } /* fill colour for "multiple" (rule
 .top-bar { background-color: var(--bar); }   /* plus the TL;DR rules */
 ```
 
-On iPhone the top colour may change after scrolling ([`defaultTopContentInsetBackgroundCanChangeAfterScrolling`][can-change]; on iPad it locks after the first interaction), so the status bar should follow a scheme change. Blur removal with a bar like this was checked on a device; that the colour switches live was not.
+Blur removal with a bar like this was checked on a device. **A live scheme switch may not update the status bar:** in the Simulator, the page-background fill (page 4) stayed `#ffffff` after switching to dark, even after scrolling, until the app was relaunched. Whether a bar whose own colour changes with the scheme updates live wasn't tested; demo page 1 is green in both schemes. Source says the top colour may change after scrolling on iPhone ([`defaultTopContentInsetBackgroundCanChangeAfterScrolling`][can-change]; on iPad it locks after the first interaction), which this observation doesn't bear out for the fallback.
 
 ### Sticky header (other developers' reports)
 
@@ -182,7 +200,7 @@ On iPhone the top colour may change after scrolling ([`defaultTopContentInsetBac
 
 A sticky box counts like a fixed one whenever it covers the hit point (rules 3–5). [magpie#3515][magpie] reports this on an iPhone with iOS 27.
 
-### Glass header with a solid status bar (not checked on a device)
+### Glass header with a solid status bar (not checked on a device or in the Simulator)
 
 ```html
 <div class="status-strip" aria-hidden="true"></div>
@@ -213,7 +231,7 @@ Add the fixed bar anyway; the rules don't care which element scrolls. A full-vie
 | --- | --- |
 | `candidate` | WebKit's rules would pick this element for the top edge. Includes an estimated colour when it can come from CSS. |
 | `none` | No candidate found by this check: by WebKit's rules the blur would stay. |
-| `inconclusive` | Part of the decision can't be reproduced from the DOM: the pixel-sample path, subframes, or a `pointer-events` override that didn't apply. |
+| `inconclusive` | Part of the decision can't be reproduced from the DOM: the pixel-sample path, subframes, a `pointer-events` override that didn't apply, or the page being pulled down past the top. |
 
 ```text
 NO CANDIDATE FOUND by this check: WebKit's rules would find nothing for the top edge, so the blur stays.
@@ -238,6 +256,7 @@ NO CANDIDATE FOUND by this check: WebKit's rules would find nothing for the top 
 **Limits**
 
 - **One moment only.** It can't see retained edges (rule 12), what the shell reserved (rule 1) or the status-bar style an icon was installed with. It reports the current meta tag separately.
+- **Pull-down.** While the page is pulled past the top (negative visual viewport offset or `scrollY`), WebKit keeps the previous edge (rule 13), so the checker reports `inconclusive`. Before this was handled, it reported "no candidate" on demo page 1 in the Simulator while the bar stayed solid.
 - **Approximate geometry:**
   - transforms, pinch zoom, horizontal overflow and a visual viewport offset from the layout viewport are flagged as approximate;
   - which boxes form a layer (rule 4) is estimated from CSS;
@@ -248,22 +267,24 @@ NO CANDIDATE FOUND by this check: WebKit's rules would find nothing for the top 
 
 | You see | Likely cause |
 | --- | --- |
-| Blur, and your header's colour under it | Installed with `black-translucent` (rule 1, reports): remove it and test a fresh install. |
-| Blur, status bar plain white or black | No qualifying element: run the checker. |
+| Blur, your header's colour under it, a dark clock even in light mode | Installed with `black-translucent` (rule 1): remove it and test a fresh install. |
+| Blur, page content smeared behind the status bar | No qualifying element: run the checker. |
 | No blur, but the status bar is the page background | `backdrop-filter` or mixed colours on the way up (rules 9, 11). |
 | A colour stays after the header slides away | The old element still renders and is visible, so its edge is retained (rule 12). Remove it with `display: none`, or hand over to another element as [zenn][zenn] does. |
 
-**Tests.** [`checker/test/`](checker/test/index.html) runs 38 fixture pages through the checker, with expected verdicts taken from the source. They test the checker's reading of WebKit's rules, not iOS. All 38 pass in headless Chromium. Run them with `bun run serve` and open `/checker/test/`, or use the [live copy](https://ios-pwa-top-blur-demo.rexdotsh.workers.dev/checker/test/).
+**Tests.** [`checker/test/`](checker/test/index.html) runs 39 fixture pages through the checker, with expected verdicts taken from the source. They test the checker's reading of WebKit's rules, not iOS. All 39 pass in headless Chromium. Run them with `bun run serve` and open `/checker/test/`, or use the [live copy](https://ios-pwa-top-blur-demo.rexdotsh.workers.dev/checker/test/).
 
 ## Demo
 
 https://ios-pwa-top-blur-demo.rexdotsh.workers.dev has five pages, each its own installable app with its own manifest:
 
-1. **fixed:** the TL;DR. The same pattern as the test page checked on an iPhone.
-2. **narrow bar:** 80% wide. Prediction from source.
-3. **thin strip:** 4px. Prediction from source.
-4. **glass bar:** the tint fallback experiment. Prediction from source.
-5. **black-translucent:** page 1 plus that tag only. Based on other developers' reports.
+1. **fixed:** the TL;DR. Device-verified (the same pattern as the iPhone test page) and simulator-verified.
+2. **narrow bar:** 80% wide. Simulator-verified: blur stays.
+3. **thin strip:** 4px. Simulator-verified: blur stays.
+4. **glass bar:** the tint fallback experiment. Simulator-verified: no blur, page background colour.
+5. **black-translucent:** page 1 plus that tag only. Simulator-verified: blur stays.
+
+All five behaved as described in light and dark, at rest, scrolled and pulled down ([results](docs/simulator-results.md)).
 
 Each page shows its install state, safe-area insets, layout and visual viewport, the current status-bar meta tag and the checker's estimate.
 
