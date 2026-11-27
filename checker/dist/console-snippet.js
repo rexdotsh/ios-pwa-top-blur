@@ -7,8 +7,8 @@
   var MAX_RATIO = 1.05;
   var NEARLY_TRANSPARENT = 0.1;
   var SOLID_ALPHA = 0.75;
-  var SAMPLES = 29;
   var REPLACED = new Set(["IMG", "VIDEO", "CANVAS", "IFRAME", "EMBED", "OBJECT", "svg", "INPUT", "SELECT", "TEXTAREA"]);
+  var FRAMES = new Set(["IFRAME", "FRAME", "OBJECT", "EMBED"]);
   var canvas = null;
   function parseColor(win, value) {
     if (!value || value === "transparent")
@@ -28,9 +28,9 @@
   }
   var visible = (c) => Boolean(c && c.a > 0);
   var same = (a, b) => a.r === b.r && a.g === b.g && a.b === b.b && a.a === b.a;
-  var similar = (a, b) => (a.r - b.r) ** 2 + (a.g - b.g) ** 2 + (a.b - b.b) ** 2 <= 36;
-  var hex = (c) => c ? `#${[c.r, c.g, c.b].map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")}` : "none";
+  var hex = (c) => `#${[c.r, c.g, c.b].map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")}`;
   var show = (c) => c ? c.a < 1 ? `${hex(c)} at ${Math.round(c.a * 100)}% alpha` : hex(c) : "none";
+  var blend = (bg, fg) => ({ r: fg.r * fg.a + bg.r * (1 - fg.a), g: fg.g * fg.a + bg.g * (1 - fg.a), b: fg.b * fg.a + bg.b * (1 - fg.a), a: 1 });
   function describe(el) {
     if (!el || !el.tagName)
       return String(el);
@@ -63,11 +63,28 @@
     const doc = win.document;
     const html = doc.documentElement;
     const cs = (el) => win.getComputedStyle(el);
-    const vw = Math.min(html.clientWidth || win.innerWidth, win.innerWidth);
-    const vh = Math.min(html.clientHeight || win.innerHeight, win.innerHeight);
-    const lengthTop = vw - 2 * MARGIN;
-    const lengthSide = vh - 2 * MARGIN;
-    const point = { x: vw / 2, y: MARGIN };
+    const ignored = (el) => Boolean(options.ignore && el.closest?.(options.ignore));
+    const viewportConstrained = (s) => s.position === "fixed" || s.position === "sticky";
+    const probe = doc.createElement("div");
+    probe.style.cssText = "position:absolute;top:0;left:0;width:100vw;height:100vh;visibility:hidden;pointer-events:none";
+    let units;
+    try {
+      html.appendChild(probe);
+      units = probe.getBoundingClientRect();
+    } finally {
+      probe.remove();
+    }
+    const fixedW = html.clientWidth || win.innerWidth;
+    const fixedH = html.clientHeight || win.innerHeight;
+    const lengthTop = Math.min(fixedW - 2 * MARGIN, units.width);
+    const lengthSide = Math.min(fixedH - 2 * MARGIN, units.height);
+    const point = { x: fixedW / 2, y: MARGIN };
+    const approximate = [];
+    const vv = win.visualViewport;
+    if (vv && (Math.abs(vv.scale - 1) > 0.01 || vv.offsetTop || vv.offsetLeft))
+      approximate.push("the page is zoomed or the visual viewport is offset");
+    if (html.scrollWidth > html.clientWidth + 1)
+      approximate.push("the page overflows horizontally");
     const pageBg = (() => {
       const h = parseColor(win, cs(html).backgroundColor);
       if (visible(h))
@@ -80,6 +97,11 @@
       return Boolean(v && v !== "none");
     };
     const compare = (len, viewport) => len < viewport * MIN_RATIO ? "smaller" : len < viewport * MAX_RATIO ? "similar" : "larger";
+    const box = (el) => {
+      const r = el.getBoundingClientRect();
+      return { width: Math.ceil(r.right) - Math.floor(r.left), height: Math.ceil(r.bottom) - Math.floor(r.top) };
+    };
+    const borderBox = (el) => typeof el.offsetWidth === "number" ? { width: el.offsetWidth, height: el.offsetHeight } : box(el);
     const hidden = (el, s) => {
       if (s.visibility === "hidden" || s.visibility === "collapse")
         return "visibility: hidden";
@@ -92,20 +114,21 @@
         return "no background, no backdrop-filter and no content";
       return null;
     };
-    const backgroundOf = (el, s, rect) => {
-      if (rect.width <= THIN || rect.height <= THIN)
-        return { color: null, why: `${Math.round(rect.width)}×${Math.round(rect.height)}px is ≤ 10px on one side` };
+    const backgroundOf = (el, s) => {
+      const b = borderBox(el);
+      if (b.width <= THIN || b.height <= THIN)
+        return { color: null, why: `its border box is ${b.width}×${b.height}px (≤ 10px on one side)` };
       if (hidden(el, s))
-        return { color: null, why: "hidden" };
-      if (compare(rect.width, lengthTop) === "smaller")
-        return { color: null, why: "narrower than 90%" };
-      return { color: parseColor(win, s.backgroundColor), why: "" };
+        return { color: null, why: "it is hidden" };
+      if (compare(box(el).width, lengthTop) === "smaller")
+        return { color: null, why: "it is narrower than 90%" };
+      return { color: parseColor(win, s.backgroundColor), why: "it has no background-color" };
     };
     const classify = (el) => {
       const s = cs(el);
-      const rect = el.getBoundingClientRect();
-      const info = { el, s, rect, position: s.position };
-      if (s.position !== "fixed" && s.position !== "sticky")
+      const rect = box(el);
+      const info = { el, s, position: s.position };
+      if (!viewportConstrained(s))
         return { ...info, type: "not-fixed", why: `position: ${s.position}` };
       const w = compare(rect.width, lengthTop);
       const h = compare(rect.height, lengthSide);
@@ -114,11 +137,11 @@
         return { ...info, type: "hidden", why: hid };
       const bg = parseColor(win, s.backgroundColor);
       const dimming = w !== "smaller" && h !== "smaller" && visible(bg) && !hasRenderedChild(win, el) && (parseFloat(s.opacity) < 1 || bg.a < 1);
-      const pct = Math.round(rect.width / vw * 100);
+      const pct = Math.round(rect.width / fixedW * 100);
       if (w === "smaller")
-        return h !== "smaller" ? { ...info, type: "sidebar", why: `narrow (${pct}%) but full height: counted as a sidebar` } : { ...info, type: "too-small", why: `${Math.round(rect.width)}px wide (${pct}%) < 90% of ${lengthTop}px` };
+        return h !== "smaller" ? { ...info, type: "sidebar", why: `narrow (${pct}%) but full height: counted as a sidebar` } : { ...info, type: "too-small", why: `${rect.width}px wide (${pct}%) < 90% of ${lengthTop}px` };
       if (!dimming && h === "larger")
-        return { ...info, type: "too-large", why: `${Math.round(rect.height)}px tall ≥ 105% of the viewport` };
+        return { ...info, type: "too-large", why: `${rect.height}px tall ≥ 105% of the viewport` };
       if (dimming)
         return { ...info, type: "dimming", why: "full-viewport translucent overlay (dimming layer)" };
       if (w === "similar" && h === "similar") {
@@ -127,18 +150,57 @@
           return { ...info, type: "negative-z", why: `viewport-sized with z-index ${z}` };
         return { ...info, type: "viewport-sized", why: "about the size of the viewport" };
       }
-      return { ...info, type: "candidate", why: `${s.position}, ${pct}% wide, ${Math.round(rect.height)}px tall` };
+      return { ...info, type: "candidate", why: `${s.position}, ${pct}% wide, ${rect.height}px tall` };
+    };
+    const createsLayer = (el, s) => el === html || s.position !== "static" || s.transform !== "none" || parseFloat(s.opacity) < 1 || s.filter !== "none" || backdrop(s) || s.overflowX !== "visible" || s.overflowY !== "visible" || s.clipPath && s.clipPath !== "none" || /transform|opacity/.test(s.willChange);
+    const hasViewportConstrainedDescendant = (el) => {
+      const walker = doc.createTreeWalker(el, 1);
+      for (let n = walker.nextNode();n; n = walker.nextNode())
+        if (viewportConstrained(cs(n)))
+          return true;
+      return false;
+    };
+    const skippedLayer = (el) => {
+      let layer = el;
+      while (layer && !createsLayer(layer, cs(layer)))
+        layer = parent(layer);
+      if (!layer || layer === html)
+        return false;
+      for (let p = layer;p; p = parent(p))
+        if (viewportConstrained(cs(p)))
+          return false;
+      return !hasViewportConstrainedDescendant(layer);
+    };
+    const inconclusive = [];
+    const topAt = (root, owner) => {
+      for (const e of root.elementsFromPoint(point.x, point.y)) {
+        if (ignored(e) || owner && e.getRootNode() !== root || skippedLayer(e))
+          continue;
+        if (e.shadowRoot)
+          return topAt(e.shadowRoot, e) ?? e;
+        return e;
+      }
+      return null;
     };
     const hitTest = (ignorePointerEvents) => {
-      let style = null;
-      if (ignorePointerEvents) {
-        style = doc.createElement("style");
-        style.textContent = "*, *::before, *::after { pointer-events: auto !important; }";
+      if (!ignorePointerEvents)
+        return topAt(doc, null);
+      const style = doc.createElement("style");
+      style.textContent = "*, *::before, *::after { pointer-events: auto !important; }";
+      try {
         (doc.head || html).appendChild(style);
+        const stuck = [...doc.querySelectorAll("*")].filter((e) => {
+          if (ignored(e) || cs(e).pointerEvents !== "none")
+            return false;
+          const r = e.getBoundingClientRect();
+          return r.left <= point.x && point.x < r.right && r.top <= point.y && point.y < r.bottom;
+        });
+        if (stuck.length)
+          inconclusive.push(`WebKit ignores pointer-events here, but this check couldn't override it on ${stuck.slice(0, 3).map(describe).join(", ")} (a stricter author rule or a Content-Security-Policy)`);
+        return topAt(doc, null);
+      } finally {
+        style.remove();
       }
-      const stack = doc.elementsFromPoint(point.x, point.y).filter((e) => !(options.ignore && e.closest?.(options.ignore)));
-      style?.remove();
-      return stack[0] ?? null;
     };
     const walk = (ignorePointerEvents) => {
       const hit = hitTest(ignorePointerEvents);
@@ -147,13 +209,24 @@
       let multiple = false;
       let foundBackdrop = false;
       let retry = false;
+      const topLayer = (el) => [":modal", ":popover-open", ":fullscreen"].some((sel) => {
+        try {
+          return el.matches(sel);
+        } catch {
+          return false;
+        }
+      });
+      if (hit && topLayer(hit)) {
+        const b = parseColor(win, win.getComputedStyle(hit, "::backdrop").backgroundColor);
+        return { hit, steps, container: { el: hit, position: "top layer", type: "dimming", why: "::backdrop of a top-layer element" }, color: visible(b) ? b : pageBg, foundBackdrop };
+      }
       for (let el = hit;el; el = parent(el)) {
         const c = classify(el);
         if (c.type !== "hidden") {
           if (backdrop(c.s))
             foundBackdrop = true;
           else {
-            const bg = backgroundOf(el, c.s, c.rect).color;
+            const bg = backgroundOf(el, c.s).color;
             if (visible(bg)) {
               if (!color)
                 color = bg;
@@ -173,140 +246,81 @@
     let walked = walk(true);
     if (!walked.container && walked.retry)
       walked = walk(false);
-    const rules = [];
-    const add = (id, ok, text, el = null) => rules.push({ id, ok, text, element: el });
-    const sbs = doc.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.content ?? null;
-    add("status-bar-style", sbs !== "black-translucent", sbs === "black-translucent" ? 'apple-mobile-web-app-status-bar-style is "black-translucent": iOS reserves no strip under the status bar, so nothing can replace the blur. Remove it and re-add the icon.' : `apple-mobile-web-app-status-bar-style is ${sbs ? `"${sbs}"` : "not set"} (fine). It is read when the icon is added.`);
     const c = walked.container;
-    add("fixed-container", Boolean(c), c ? `${describe(c.el)} is a ${c.position} element covering the top-centre point (${Math.round(point.x)}, ${point.y}).` : `No fixed or sticky element at the top-centre point (${Math.round(point.x)}, ${point.y}). Hit ${describe(walked.hit)}; walked up: ${walked.steps.map((st) => `${describe(st.el)} (${st.why})`).join(" → ")}.`, c?.el ?? walked.hit);
-    let verdict = "fail";
+    if (walked.hit && FRAMES.has(walked.hit.tagName))
+      inconclusive.push(`the top-centre point is over ${describe(walked.hit)}; WebKit samples subframes, this check can't`);
+    for (const st of walked.steps)
+      if (st.s && st.s.transform !== "none")
+        approximate.push(`${describe(st.el)} is transformed`);
+    const notes = [];
     let color = null;
     let colorSource = null;
     if (c) {
-      if (c.type === "sidebar" || c.type === "viewport-sized" || c.type === "dimming")
-        add("size", true, `${describe(c.el)}: ${c.why}. It works, but it never replaces an edge colour already chosen (preferExistingColor).`, c.el);
-      else
-        add("size", true, `${describe(c.el)}: ${c.why} (needs ≥ 90% of ${lengthTop}px, < 105% of the viewport height).`, c.el);
-      add("backdrop-filter", !walked.foundBackdrop, walked.foundBackdrop ? `A backdrop-filter between the hit element and the container makes the edge "multiple colours": the strip is filled with the page background instead of the bar's colour.` : "No backdrop-filter on the way up.", c.el);
+      notes.push(`${describe(c.el)} is the candidate: ${c.why}.`);
+      if (["sidebar", "viewport-sized", "dimming"].includes(c.type))
+        notes.push("Boxes like this never replace an edge colour WebKit already chose (preferExistingColor).");
       if (walked.foundBackdrop) {
-        verdict = "warn";
-        color = pageBg;
-        colorSource = "page background (backdrop-filter)";
+        notes.push('A backdrop-filter between the hit element and the candidate marks the edge "multiple colours": WebKit fills the strip with the page background, unless it keeps an earlier solid colour (Page::updateFixedContainerEdges).');
+        colorSource = "page background (multiple colours)";
       } else if (visible(walked.color)) {
         const solid = walked.color.a >= SOLID_ALPHA && c.type !== "dimming";
         color = solid ? { ...walked.color, a: 1 } : blend(pageBg, walked.color);
-        colorSource = "background-color";
-        add("colour", true, solid ? `background-color ${show(walked.color)} → status bar ${hex(color)}.` : `background-color ${show(walked.color)} is below 75% alpha, so it is blended over the page background → ${hex(color)}.`, c.el);
-        verdict = c.type === "candidate" ? "pass" : "warn";
+        colorSource = "computed background-color (estimate)";
+        notes.push(solid ? `background-color ${show(walked.color)} → estimated status-bar colour ${hex(color)}.` : `background-color ${show(walked.color)} is blended over the page background${c.type === "dimming" ? " (dimming layers always are)" : ""} → estimated ${hex(color)}.`);
       } else {
-        const reason = walked.multiple ? "elements between the hit point and the container have different background colours" : backgroundOf(c.el, c.s, c.rect).why || "the container has no background-color";
-        const sampled = sampleRow();
-        add("colour", Boolean(sampled.color || sampled.unknown), `No colour from CSS (${reason}), so WebKit snapshots rows 4–6 of fixed/sticky layers. Approximation here: ${sampled.text}`, c.el);
-        if (sampled.color) {
-          verdict = "warn";
-          color = sampled.color.a >= SOLID_ALPHA ? { ...sampled.color, a: 1 } : blend(pageBg, sampled.color);
-          colorSource = "pixel sample (approximate)";
-        } else if (sampled.multiple) {
-          verdict = "warn";
-          color = pageBg;
-          colorSource = "page background (mixed colours in the sample)";
-        } else if (sampled.unknown) {
-          verdict = "warn";
-          colorSource = "pixel sample of an image (unknown here)";
-        }
+        const reason = walked.multiple ? "elements between the hit point and the candidate have different background colours" : `the candidate's colour can't come from CSS: ${backgroundOf(c.el, c.s ?? cs(c.el)).why}`;
+        inconclusive.push(`${reason}, so WebKit samples painted pixels 4–6px below the top, which this check can't`);
       }
     }
-    if (!rules[0].ok)
-      verdict = "fail";
-    if (verdict === "fail")
-      color = null;
-    function sampleRow() {
-      const counts = [];
-      let total = 0;
-      let image = false;
-      for (let i = 0;i < SAMPLES; i++) {
-        const x = MARGIN + (vw - 2 * MARGIN) * i / (SAMPLES - 1);
-        const stack = doc.elementsFromPoint(Math.min(x, vw - 1), MARGIN + 1);
-        let found = null;
-        for (const e of stack) {
-          if (options.ignore && e.closest?.(options.ignore))
-            continue;
-          let fixed = false;
-          for (let p = e;p; p = parent(p)) {
-            const ps = cs(p).position;
-            if (ps === "fixed" || ps === "sticky") {
-              fixed = true;
-              break;
-            }
-          }
-          if (!fixed)
-            continue;
-          const es = cs(e);
-          const bg = parseColor(win, es.backgroundColor);
-          if (visible(bg)) {
-            found = bg;
-            break;
-          }
-          if (es.backgroundImage && es.backgroundImage !== "none") {
-            image = true;
-            break;
-          }
-        }
-        if (image)
-          return { color: null, multiple: false, unknown: true, text: "a background image or gradient is painted there; JavaScript can't read its pixels. Check on a device." };
-        if (!found)
-          continue;
-        total++;
-        const bucket = counts.find((b) => similar(b.color, found));
-        if (bucket)
-          bucket.n++;
-        else
-          counts.push({ color: found, n: 1 });
-      }
-      counts.sort((a, b) => b.n - a.n);
-      if (!total)
-        return { color: null, multiple: false, text: "nothing fixed/sticky with a background at y = 5px → no edge, blur stays." };
-      if (counts[0].n > 0.67 * SAMPLES)
-        return { color: counts[0].color, multiple: false, text: `${show(counts[0].color)} covers ${counts[0].n}/${SAMPLES} samples (> 67%).` };
-      return { color: null, multiple: true, text: `no colour covers > 67% of ${SAMPLES} samples (top: ${show(counts[0].color)} ${counts[0].n}/${SAMPLES}) → filled with the page background.` };
-    }
-    const standalone = win.navigator.standalone === true || win.matchMedia("(display-mode: standalone)").matches;
+    const verdict = inconclusive.length ? "inconclusive" : c ? "candidate" : "none";
+    const meta = doc.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.content?.trim() ?? null;
+    const statusBarStyle = {
+      value: meta,
+      note: meta === null || meta === "default" ? `${meta === null ? "not set" : '"default"'}, as in the setups verified on an iPhone.` : meta === "black-translucent" ? '"black-translucent": installs with it reportedly reserve no strip under the status bar, so no element can remove the blur.' : meta === "black" ? '"black": not studied here.' : `"${meta}" is not a recognised value.`
+    };
     return {
       verdict,
-      blurHidden: verdict !== "fail",
-      statusBarColor: color ? hex(color) : null,
-      colorSource,
       container: c?.el ?? null,
       hit: walked.hit,
+      estimatedColor: color ? hex(color) : null,
+      colorSource,
+      notes,
+      inconclusive,
+      approximate: [...new Set(approximate)],
+      statusBarStyle,
       point,
-      viewport: { width: vw, height: vh },
       walk: walked.steps.map((st) => ({ element: st.el, label: describe(st.el), type: st.type, why: st.why })),
-      rules,
-      standalone
+      standalone: win.navigator.standalone === true || win.matchMedia("(display-mode: standalone)").matches
     };
   }
-  function blend(bg, fg) {
-    const a = fg.a;
-    return { r: fg.r * a + bg.r * (1 - a), g: fg.g * a + bg.g * (1 - a), b: fg.b * a + bg.b * (1 - a), a: 1 };
-  }
   function formatTopEdgeCheck(result) {
-    const head = {
-      pass: "PASS: the status bar should be solid, no blur",
-      warn: "PASS WITH CAVEATS: the blur should hide, but read the notes",
-      fail: "FAIL: the status bar will keep its blur"
-    }[result.verdict];
-    const lines = [head];
-    if (result.statusBarColor)
-      lines.push(`status bar colour: ${result.statusBarColor} (from ${result.colorSource})`);
-    for (const r of result.rules)
-      lines.push(`${r.ok ? "✓" : "✗"} ${r.text}`);
-    if (!result.standalone)
-      lines.push("note: not running as an installed web app; the result describes what the installed app would do.");
+    const lines = [];
+    if (result.verdict === "candidate")
+      lines.push("CANDIDATE FOUND: WebKit's rules would pick an element for the top edge (the path that hides the blur).");
+    if (result.verdict === "none")
+      lines.push("NO CANDIDATE FOUND by this check: WebKit's rules would find nothing for the top edge, so the blur stays.");
+    if (result.verdict === "inconclusive")
+      lines.push("INCONCLUSIVE: part of WebKit's decision can't be reproduced from the DOM.");
+    const meta = result.statusBarStyle;
+    const metaLine = `Current apple-mobile-web-app-status-bar-style meta: ${meta.note} The value an icon was installed with can't be read from the page.`;
+    if (meta.value !== null && meta.value !== "default")
+      lines.push(`! ${metaLine}`);
+    for (const r of result.inconclusive)
+      lines.push(`? ${r}.`);
+    for (const n of result.notes)
+      lines.push(`· ${n}`);
+    if (result.verdict === "none")
+      lines.push(`· Nothing qualified at the top-centre point (${Math.round(result.point.x)}, ${result.point.y}). Walked up: ${result.walk.map((w) => `${w.label} (${w.why})`).join(" → ") || "nothing hit"}.`);
+    for (const a of result.approximate)
+      lines.push(`~ approximate: ${a}.`);
+    if (meta.value === null || meta.value === "default")
+      lines.push(`· ${metaLine}`);
+    lines.push("· This is an estimate from the DOM at WebKit de94a1bcf328, not a result from iOS.");
     return lines.join(`
 `);
   }
   function printTopEdgeCheck(result = checkTopEdge()) {
-    const style = { pass: "color:#16a34a", warn: "color:#b45309", fail: "color:#dc2626" }[result.verdict];
+    const style = { candidate: "color:#16a34a", inconclusive: "color:#b45309", none: "color:#dc2626" }[result.verdict];
     console.log(`%c${formatTopEdgeCheck(result)}`, `${style};font-weight:600`);
     console.log("walk from the hit element up:", result.walk);
     if (result.container || result.hit)
@@ -320,14 +334,15 @@
   var cleanUp = () => {
     document.querySelectorAll(`[${ATTR}]`).forEach((el) => el.remove());
     document.querySelectorAll(`[${OUTLINE}]`).forEach((el) => {
-      el.style.outline = el.getAttribute(OUTLINE);
+      const [value, priority] = JSON.parse(el.getAttribute(OUTLINE));
+      el.style.setProperty("outline", value, priority);
       el.removeAttribute(OUTLINE);
     });
   };
   cleanUp();
   var result = printTopEdgeCheck(checkTopEdge({ ignore: `[${ATTR}]` }));
   var target = result.container ?? result.hit;
-  var colour = { pass: "#16a34a", warn: "#b45309", fail: "#dc2626" }[result.verdict];
+  var colour = { candidate: "#16a34a", inconclusive: "#b45309", none: "#dc2626" }[result.verdict];
   var box = document.createElement("div");
   box.setAttribute(ATTR, "");
   box.style.cssText = `position:fixed;left:8px;right:8px;bottom:8px;z-index:2147483647;max-height:45vh;overflow:auto;
@@ -339,8 +354,8 @@
   close.style.cssText = "float:right;margin:0 0 6px 8px;font:600 13px system-ui;padding:6px 10px;border-radius:8px;border:1px solid #ccc;background:#f4f4f4;color:#111";
   box.prepend(close);
   if (target && target !== document.documentElement && target !== document.body) {
-    target.setAttribute(OUTLINE, target.style.outline);
-    target.style.outline = `3px dashed ${colour}`;
+    target.setAttribute(OUTLINE, JSON.stringify([target.style.getPropertyValue("outline"), target.style.getPropertyPriority("outline")]));
+    target.style.setProperty("outline", `3px dashed ${colour}`, "important");
   }
   close.onclick = cleanUp;
   document.body.appendChild(box);

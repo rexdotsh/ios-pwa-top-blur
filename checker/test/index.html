@@ -17,11 +17,11 @@
 </head>
 <body>
 <h1>ios-top-edge-check: fixture tests</h1>
-<p class="mute">Each fixture loads in a 390×844 frame. Expected results follow WebKit's rules at de94a1bcf328.</p>
+<p class="mute">Each fixture loads in a 390×844 frame. Expected verdicts follow WebKit's rules at de94a1bcf328. They test the checker's reading of those rules, not iOS.</p>
 <p id="summary">running…</p>
 <ol id="list"></ol>
 <script type="module">
-  import { checkTopEdge } from "../ios-top-edge-check.js";
+  import { checkTopEdge, formatTopEdgeCheck } from "../ios-top-edge-check.js";
   import { FIXTURES, fixtureDoc } from "./fixtures.js";
 
   const list = document.getElementById("list");
@@ -40,14 +40,16 @@
     const r = checkTopEdge({ window: frame.contentWindow });
     frame.remove();
     const okVerdict = r.verdict === f.expect;
-    const okColor = !f.color || r.statusBarColor === f.color;
-    const ok = okVerdict && okColor;
+    const okColor = f.color === undefined || r.estimatedColor === f.color;
+    const okMeta = f.meta === undefined || (r.statusBarStyle.value === f.meta && !r.statusBarStyle.note.includes("as in the setups verified"));
+    const ok = okVerdict && okColor && okMeta;
     if (ok) passed++;
     else failures.push(f.name);
     const li = document.createElement("li");
-    li.innerHTML = `<span class="${ok ? "ok" : "bad"}">${ok ? "ok" : "FAIL"}</span> ${f.name}
-      <span class="mute">· expected ${f.expect}${f.color ? ` ${f.color}` : ""}, got ${r.verdict}${r.statusBarColor ? ` ${r.statusBarColor}` : ""}</span>`;
-    li.title = r.rules.map((x) => `${x.ok ? "✓" : "✗"} ${x.text}`).join("\n");
+    const name = f.name.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+    li.innerHTML = `<span class="${ok ? "ok" : "bad"}">${ok ? "ok" : "FAIL"}</span> ${name}
+      <span class="mute">· expected ${f.expect}${f.color ? ` ${f.color}` : ""}, got ${r.verdict}${r.estimatedColor ? ` ${r.estimatedColor}` : ""}</span>`;
+    li.title = formatTopEdgeCheck(r);
     list.appendChild(li);
   }
   const text = `${passed}/${FIXTURES.length} passed`;

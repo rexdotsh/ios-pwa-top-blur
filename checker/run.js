@@ -6,7 +6,8 @@ const OUTLINE = "data-top-edge-outline";
 const cleanUp = () => {
   document.querySelectorAll(`[${ATTR}]`).forEach((el) => el.remove());
   document.querySelectorAll(`[${OUTLINE}]`).forEach((el) => {
-    el.style.outline = el.getAttribute(OUTLINE);
+    const [value, priority] = JSON.parse(el.getAttribute(OUTLINE));
+    el.style.setProperty("outline", value, priority);
     el.removeAttribute(OUTLINE);
   });
 };
@@ -14,7 +15,7 @@ cleanUp();
 
 const result = printTopEdgeCheck(checkTopEdge({ ignore: `[${ATTR}]` }));
 const target = result.container ?? result.hit;
-const colour = { pass: "#16a34a", warn: "#b45309", fail: "#dc2626" }[result.verdict];
+const colour = { candidate: "#16a34a", inconclusive: "#b45309", none: "#dc2626" }[result.verdict];
 
 const box = document.createElement("div");
 box.setAttribute(ATTR, "");
@@ -29,8 +30,8 @@ close.style.cssText = "float:right;margin:0 0 6px 8px;font:600 13px system-ui;pa
 box.prepend(close);
 
 if (target && target !== document.documentElement && target !== document.body) {
-  target.setAttribute(OUTLINE, target.style.outline);
-  target.style.outline = `3px dashed ${colour}`;
+  target.setAttribute(OUTLINE, JSON.stringify([target.style.getPropertyValue("outline"), target.style.getPropertyPriority("outline")]));
+  target.style.setProperty("outline", `3px dashed ${colour}`, "important");
 }
 close.onclick = cleanUp;
 document.body.appendChild(box);
