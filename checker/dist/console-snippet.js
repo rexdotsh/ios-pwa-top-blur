@@ -80,8 +80,11 @@
     const lengthSide = Math.min(fixedH - 2 * MARGIN, units.height);
     const point = { x: fixedW / 2, y: MARGIN };
     const approximate = [];
+    const inconclusive = [];
     const vv = win.visualViewport;
-    if (vv && (Math.abs(vv.scale - 1) > 0.01 || vv.offsetTop || vv.offsetLeft))
+    if (vv && (vv.offsetTop < 0 || vv.pageTop < 0) || win.scrollY < 0)
+      inconclusive.push("the page is pulled down past the top; WebKit doesn't re-sample the top edge then and keeps the previous one");
+    else if (vv && (Math.abs(vv.scale - 1) > 0.01 || vv.offsetTop || vv.offsetLeft))
       approximate.push("the page is zoomed or the visual viewport is offset");
     if (html.scrollWidth > html.clientWidth + 1)
       approximate.push("the page overflows horizontally");
@@ -171,7 +174,6 @@
           return false;
       return !hasViewportConstrainedDescendant(layer);
     };
-    const inconclusive = [];
     const topAt = (root, owner) => {
       for (const e of root.elementsFromPoint(point.x, point.y)) {
         if (ignored(e) || owner && e.getRootNode() !== root || skippedLayer(e))

@@ -163,6 +163,13 @@ export const FIXTURES = [
     html: BAR,
   },
   {
+    name: "good header while pulled down past the top (simulated visual viewport offset)",
+    expect: "inconclusive",
+    css: bar(),
+    html: BAR,
+    script: `window.visualViewport = { scale: 1, width: innerWidth, height: innerHeight, offsetTop: -139, offsetLeft: 0, pageTop: -139, pageLeft: 0, addEventListener() {} };`,
+  },
+  {
     name: "dimming overlay: 80% black is blended, not clamped",
     expect: "candidate",
     color: "#333333",
